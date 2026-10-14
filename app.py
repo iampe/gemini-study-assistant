@@ -1,3 +1,4 @@
+
 import streamlit as st
 from google import genai
 
@@ -7,64 +8,83 @@ st.set_page_config(
 )
 
 st.title("🎓 AI Study Assistant")
-st.write("Ask an educational question.")
+st.caption("Ask questions and continue the conversation.")
 
+# 1. Read the API key
 api_key = st.secrets.get("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("API key is not configured.")
+    st.error("Gemini API key is not configured.")
     st.stop()
 
+# 2. Create the Gemini client
 client = genai.Client(api_key=api_key)
 
-level = st.selectbox(
-    "Student level",
-    ["School", "College", "University"]
-)
+# 3. Initialize chat history only once per session
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-style = st.selectbox(
-    "Answer style",
-    [
-        "Simple explanation",
-        "Example-based explanation",
-        "Exam-oriented answer"
-    ]
-)
+# 4. Start a new conversation
+if st.button("🗑️ Clear Chat"):
+    st.session_state.messages = []
+    st.rerun()
 
-question = st.text_area("Enter your question")
+# 5. Display all previous messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-if st.button("Generate Answer"):
-    if not question.strip():
-        st.warning("Please enter a question.")
-    elif len(question) > 4000:
-        st.warning("Please shorten your question.")
+# 6. Input for the next question
+question = st.chat_input("Ask your next question...")
+
+if question:
+    if len(question) > 4000:
+        st.warning("Please keep your question under 4000 characters.")
     else:
-        prompt = f"""
-        You are a helpful educational assistant.
-        Student level: {level}
-        Answer style: {style}
-        Question: {question}
+        # Save and display the user's question
+        st.session_state.messages.append({
+            "role": "user",
+            "content": question
+        })
 
-        Explain clearly and use examples when useful.
-        """
+        with st.chat_message("user"):
+            st.markdown(question)
 
         try:
-            with st.spinner("Generating answer..."):
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=prompt
-                )
+            # Build conversation history for Gemini
+            history = []
 
-            if response.text:
-                st.subheader("Answer")
-                st.markdown(response.text)
-            else:
-                st.warning("No text response was returned.")
+            for message in st.session_state.messages:
+                history.append({
+                    "role": (
+                        "user"
+                        if message["role"] == "user"
+                        else "model"
+                    ),
+                    "parts": [{"text": message["content"]}]
+                })
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    response = client.models.generate_content(
+                        model="gemini-3.8-flash",
+                        contents=history
+                    )
+
+                answer = response.text or "No text response returned."
+                st.markdown(answer)
+
+            # Save the assistant's answer
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer
+            })
 
         except Exception as error:
-            # Keep the detailed error out of the public interface.
+            # Keep technical details out of the public interface
             print("Gemini request failed:", type(error).__name__)
             st.error(
-                "Request failed. Check the model, API key, "
-                "connection and usage limits."
+                "Unable to generate a response. "
+                "Check your API key, model access, connection, "
+                "and usage limits."
             )
